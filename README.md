@@ -1,0 +1,1 @@
+# .NET-SonarCloud-Azure-Pipeline-Template
