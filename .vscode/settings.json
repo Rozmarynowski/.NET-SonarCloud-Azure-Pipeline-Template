@@ -1,0 +1,8 @@
+{
+    "yaml.schemas": {
+        "https://raw.githubusercontent.com/microsoft/azure-pipelines-vscode/master/service-schema.json": [
+            "file:///c%3A/Users/rozma/Documents/Repositories/.NET-SonarCloud-Azure-Pipeline-Template/template/common/tasks/pr-set-status.yml",
+            "file:///c%3A/Users/rozma/Documents/Repositories/.NET-SonarCloud-Azure-Pipeline-Template/template/common/tasks/nuget-authorize.yml"
+        ]
+    }
+}

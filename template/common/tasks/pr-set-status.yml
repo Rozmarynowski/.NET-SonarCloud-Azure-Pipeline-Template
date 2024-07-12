@@ -1,0 +1,19 @@
+parameters:
+- name: status
+  type: string
+  default: failed
+- name: AzureTfsOrganizationName
+  type: string
+  default: MyOrganization
+
+steps:  
+- bash: |
+    echo 'Status: ${{ parameters.status }}' 
+    curl -X POST \
+    -u :$(System.AccessToken) "https://dev.azure.com/${{ parameters.AzureTfsOrganizationName}}/$(System.TeamProject)/_apis/git/repositories/$(Build.Repository.ID)/pullRequests/$(System.PullRequest.PullRequestId)/statuses?api-version=7.0" \
+    -H 'Accept: application/json' \
+    -H 'Content-Type: application/json' \
+    -d '{"state": "${{ parameters.status }}", "context": {"name": "UnitTests",  "genre": "status" }}'
+    ls
+  displayName: 'Set Tests Status'
+  condition: eq(variables['Build.Reason'], 'PullRequest')

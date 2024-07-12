@@ -1,0 +1,128 @@
+parameters:
+# SonarCloud config
+- name: sonarcloudOrganization
+  type: string
+- name: solutionName
+  type: string
+- name: projectKey
+  type: string
+- name: projectName
+  type: string
+
+# Azure Devops Service Connections
+
+- name: dockerHubRegistry
+  type: string
+  default: 'DockerHub'
+- name: sonarCloudRegistry
+  type: string
+  default: 'SonarCloud'
+
+#DotNet Version
+- name: dotnetVersion
+  type: string
+  default: 8.0
+
+#SonarCloud Properties
+- name: exclusions
+  type: string
+  default: ''
+- name: coverageExclusions
+  type: string
+  default: ''
+
+- name: nuGetServiceConnections #Optional - only if .net project contains packages in Azure Artifacts
+  type: string
+  default: ''
+
+#Azure Devops Agent Pool
+- name: agent
+  type: object
+  default:
+    name: agentName
+    proxy: true # Optional
+    noproxy: '' #Optional - IP/DNS addresses to which the network connection should occur outside the proxy
+- name: proxyIp
+  type: string
+  default: ''
+- name: proxyPort
+  type: string
+  default: ''
+
+
+jobs:
+- job: SonarCloud
+  timeoutInMinutes: 15  
+  variables:
+     System.Debug: true
+  container:
+    image: #Docker Runetime Image from Dockerhub
+    endpoint: ${{ parameters.dockerHubRegistry }}
+    env: 
+      SONAR_DOTNET_ENABLE_CONCURRENT_EXECUTION: true
+      ${{ if eq(parameters.agent.proxy, 'true') }}:
+        HTTP_PROXY: http://${{ parameters.proxyIp}}:${{ parameters.proxyPort}}
+        HTTPS_PROXY: http://${{ parameters.proxyIp}}:${{ parameters.proxyPort}}
+        NO_PROXY: '127.0.0.1,172.17.0.1,localhost,${{ parameters.agent.noproxy }}'
+        SONAR_SCANNER_OPTS: "-Dhttps.proxyHost=${{ parameters.proxyIp}} -Dhttps.proxyPort=${{ parameters.proxyPort}}"
+  pool:
+    name: ${{ parameters.agent.name }}
+  steps: 
+  - task: SonarCloudPrepare@2
+    inputs:
+      SonarCloud: ${{ parameters.sonarCloudRegistry }}
+      organization: ${{ parameters.sonarcloudOrganization }}
+      scannerMode: 'MSBuild'
+      projectKey: ${{ parameters.projectKey }}
+      projectName: ${{ parameters.projectName }}
+      extraProperties: |
+        sonar.cs.vstest.reportsPaths=**\*.trx
+        sonar.cs.opencover.reportsPaths=**\coverage.opencover.xml
+        sonar.exclusions=**\Migrations\**\*.cs, **\appsettings*.json, **\appsettings.json,  **\*Dto.cs,  ${{ parameters.exclusions }}
+        sonar.coverage.exclusions=**\*.sql, **/Program.cs, **Startup.cs, ${{ parameters.coverageExclusions }}
+        sonar.cs.roslyn.ignoreIssues=true
+        sonar.pullrequest.github.summary_comment=false
+        sonar.pullrequest.provider=Azure DevOps Services
+        sonar.tsql.file.suffixes=.sql
+        sonar.plsql.file.suffixes=.plsql
+  - ${{ if ne(parameters.nuGetServiceConnections, '') }}:
+    - template: ../../common/tasks/nuget-authorize.yml  
+      parameters:
+        nuGetServiceConnections: ${{ parameters.nuGetServiceConnections }}
+  - script: | 
+      dotnet tool restore
+      dotnet restore '${{ parameters.solutionName }}' --verbosity m
+    displayName: Dotnet Restore
+    continueOnError: true
+  - script: | 
+      dotnet build '${{ parameters.solutionName }}'
+      dotnet test --no-build --logger "trx" /p:CollectCoverage=true /p:CoverletOutputFormat=opencover /p:ExcludeByFile=\"**/Migrations/**/*.cs\" '${{ parameters.solutionName }}'
+    
+      if [ $? -eq 0 ]; then
+          echo "##vso[task.setvariable variable=status]succeeded"
+          echo "The tests were successful!"; exit 0;
+      else
+          echo "##vso[task.setvariable variable=status]failed"
+          echo "The tests have failed!"; exit 1;
+      fi
+    displayName: Dotnet Test
+    continueOnError: true
+  - template: ../../common/tasks/pr-set-status.yml 
+    parameters:
+      status: $(status)
+  - task: SonarCloudAnalyze@2
+    continueOnError: true
+  - task: SonarCloudPublish@2
+    inputs:
+      pollingTimeoutSec: '300'
+    continueOnError: true
+  - task: PublishTestResults@2
+    inputs:
+      testResultsFormat: 'VSTest'
+      testResultsFiles: '**/*.trx'
+      searchFolder: '$(System.DefaultWorkingDirectory)'
+      testRunTitle: 'Tests'
+      publishRunAttachments: false
+    timeoutInMinutes: 2
+    displayName: 'Publish test results'
+  condition:  ne(startsWith(variables['Build.SourceBranch'], 'refs/heads/release/'), true)

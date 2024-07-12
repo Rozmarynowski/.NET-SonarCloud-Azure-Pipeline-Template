@@ -1,0 +1,8 @@
+parameters:
+- name: artifactsServiceConnection
+  type: string
+  default: 'artifacts'
+steps:
+- task: NuGetAuthenticate@1
+  inputs:
+    nuGetServiceConnections: ${{ parameters.artifactsServiceConnection }}
